@@ -1,6 +1,7 @@
 module Main exposing (..)
 
 import Browser exposing (..)
+import Browser.Dom exposing (..)
 import Browser.Events exposing (..)
 import Html exposing (..)
 import Html.Attributes exposing (..)
@@ -8,6 +9,7 @@ import Html.Events exposing (..)
 import Json.Decode as Decode
 import Math.Vector2 as Vec2 exposing (..)
 import Random as Rand exposing (..)
+import Task
 
 
 main =
@@ -25,6 +27,7 @@ main =
 
 type alias Model =
     { timeElapsed : Float
+    , viewport : Viewport
     , seed : Rand.Seed
     , pause : Bool
     , snake : Snake
@@ -35,13 +38,23 @@ type alias Model =
 type alias Snake =
     { position : Vec2
     , velocity : Vec2
+    , radius : Float
     }
 
 
 type alias Food =
     { id : Float -- we are using timestamp as id for now
     , position : Vec2
+    , radius : Float
     }
+
+
+type alias Positioned a =
+    { a | position : Vec2 }
+
+
+type alias Circle a =
+    Positioned { a | radius : Float }
 
 
 type alias Flags =
@@ -51,19 +64,47 @@ type alias Flags =
 init : Flags -> ( Model, Cmd Msg )
 init flags =
     ( { timeElapsed = 0
+      , viewport = initViewport
       , seed = Rand.initialSeed 0
       , pause = True
       , snake = initSnake
       , food = []
       }
-    , Cmd.none
+    , Task.perform UpdateViewport getViewport
     )
+
+
+initViewport =
+    { scene = initScene
+    , viewport = initSubViewport
+    }
+
+
+initScene =
+    { width = 0, height = 0 }
+
+
+initSubViewport =
+    { x = 0
+    , y = 0
+    , width = 0
+    , height = 0
+    }
 
 
 initSnake : Snake
 initSnake =
     { position = initPosition
     , velocity = vec2 speed 0
+    , radius = 20
+    }
+
+
+initFood : Float -> ( Float, Float ) -> Food
+initFood id ( x, y ) =
+    { id = id
+    , position = vec2 x y
+    , radius = 20
     }
 
 
@@ -85,16 +126,21 @@ type Msg
     = Tick Float
     | ChangeDir Direction
     | TogglePause
+    | UpdateViewport Viewport
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        UpdateViewport viewport ->
+            ( { model | viewport = viewport }, Cmd.none )
+
         Tick delta ->
             ( model
                 |> updateTimeElapsed delta
                 |> updateSnake delta
-                |> addFood delta
+                |> addFood model.viewport delta
+                |> checkCollisions
             , Cmd.none
             )
 
@@ -105,16 +151,33 @@ update msg model =
             ( { model | pause = not model.pause }, Cmd.none )
 
 
+checkCollisions : Model -> Model
+checkCollisions model =
+    let
+        ( newSnake, newFoodList ) =
+            List.foldl
+                (\food ( snake, uneaten ) ->
+                    if circlesCollide snake food then
+                        ( snake, uneaten )
+                    else
+                        ( snake, food :: uneaten )
+                )
+                ( model.snake, [] )
+                model.food
+    in
+    { model | snake = newSnake, food = newFoodList }
+
+
 updateTimeElapsed : Float -> Model -> Model
 updateTimeElapsed delta model =
     { model | timeElapsed = model.timeElapsed + delta }
 
 
-addFood : Float -> Model -> Model
-addFood delta model =
+addFood : Viewport -> Float -> Model -> Model
+addFood viewport delta model =
     let
         ( newFoodList, seed ) =
-            case Rand.step (foodGenerator model.timeElapsed) model.seed of
+            case Rand.step (foodGenerator viewport model.timeElapsed) model.seed of
                 ( Nothing, newSeed ) ->
                     ( model.food, newSeed )
 
@@ -124,16 +187,18 @@ addFood delta model =
     { model | food = newFoodList, seed = seed }
 
 
-foodGenerator : Float -> Generator (Maybe Food)
-foodGenerator id =
-    Rand.int 1 100
-        |> Rand.map
-            (\i ->
-                if i > 1 then
-                    Nothing
-                else
-                    Just { id = id, position = vec2 50 50 }
-            )
+foodGenerator : Viewport -> Float -> Generator (Maybe Food)
+foodGenerator viewport id =
+    Rand.map3
+        (\i x y ->
+            if i > 1 then
+                Nothing
+            else
+                Just (initFood id ( x, y ))
+        )
+        (Rand.int 0 100)
+        (Rand.float 10 (viewport.scene.width - 10))
+        (Rand.float 10 (viewport.scene.height - 10))
 
 
 {-| speed is pixels per frame
@@ -195,6 +260,20 @@ moveDirection direction vector =
             magnitude * sin newAngle
     in
     vec2 newX newY
+
+
+{-| circlesCollide checks if two circles overlap
+-}
+circlesCollide : Circle a -> Circle b -> Bool
+circlesCollide c1 c2 =
+    let
+        distSq =
+            Vec2.distanceSquared c1.position c2.position
+
+        radSq =
+            (c1.radius + c2.radius) ^ 2
+    in
+    distSq < radSq
 
 
 
