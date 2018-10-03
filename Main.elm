@@ -7,6 +7,7 @@ import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Json.Decode as Decode
 import Math.Vector2 as Vec2 exposing (..)
+import Random as Rand exposing (..)
 
 
 main =
@@ -23,15 +24,23 @@ main =
 
 
 type alias Model =
-    { pause : Bool
+    { timeElapsed : Float
+    , seed : Rand.Seed
+    , pause : Bool
     , snake : Snake
+    , food : List Food
     }
 
 
 type alias Snake =
     { position : Vec2
     , velocity : Vec2
-    , direction : Float -- polar coords, 0 to 2pi
+    }
+
+
+type alias Food =
+    { id : Float -- we are using timestamp as id for now
+    , position : Vec2
     }
 
 
@@ -41,14 +50,20 @@ type alias Flags =
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
-    ( { pause = True, snake = initSnake }, Cmd.none )
+    ( { timeElapsed = 0
+      , seed = Rand.initialSeed 0
+      , pause = True
+      , snake = initSnake
+      , food = []
+      }
+    , Cmd.none
+    )
 
 
 initSnake : Snake
 initSnake =
     { position = initPosition
-    , velocity = vec2 1 0
-    , direction = 0
+    , velocity = vec2 speed 0
     }
 
 
@@ -76,13 +91,49 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         Tick delta ->
-            ( { model | snake = updateSnake delta model.snake }, Cmd.none )
+            ( model
+                |> updateTimeElapsed delta
+                |> updateSnake delta
+                |> addFood delta
+            , Cmd.none
+            )
 
         ChangeDir dir ->
             ( { model | snake = changeDir dir model.snake }, Cmd.none )
 
         TogglePause ->
             ( { model | pause = not model.pause }, Cmd.none )
+
+
+updateTimeElapsed : Float -> Model -> Model
+updateTimeElapsed delta model =
+    { model | timeElapsed = model.timeElapsed + delta }
+
+
+addFood : Float -> Model -> Model
+addFood delta model =
+    let
+        ( newFoodList, seed ) =
+            case Rand.step (foodGenerator model.timeElapsed) model.seed of
+                ( Nothing, newSeed ) ->
+                    ( model.food, newSeed )
+
+                ( Just newFood, newSeed ) ->
+                    ( newFood :: model.food, newSeed )
+    in
+    { model | food = newFoodList, seed = seed }
+
+
+foodGenerator : Float -> Generator (Maybe Food)
+foodGenerator id =
+    Rand.int 1 100
+        |> Rand.map
+            (\i ->
+                if i > 1 then
+                    Nothing
+                else
+                    Just { id = id, position = vec2 50 50 }
+            )
 
 
 {-| speed is pixels per frame
@@ -97,8 +148,13 @@ dirChangeSpeed =
     0.5
 
 
-updateSnake : Float -> Snake -> Snake
-updateSnake delta snake =
+updateSnake : Float -> Model -> Model
+updateSnake delta model =
+    { model | snake = snakeUpdate delta model.snake }
+
+
+snakeUpdate : Float -> Snake -> Snake
+snakeUpdate delta snake =
     { snake | position = move delta snake.velocity snake.position }
 
 
@@ -161,7 +217,23 @@ viewGame : Model -> Html Msg
 viewGame model =
     div []
         [ viewSnake model.snake
+        , viewFoods model.food
         ]
+
+
+viewFoods : List Food -> Html Msg
+viewFoods foods =
+    div [] (List.map viewFood foods)
+
+
+viewFood : Food -> Html Msg
+viewFood food =
+    div
+        [ style "position" "absolute"
+        , style "left" (px (getX food.position))
+        , style "top" (px (getY food.position))
+        ]
+        [ text "food" ]
 
 
 viewSnake : Snake -> Html Msg
