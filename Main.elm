@@ -39,6 +39,7 @@ type alias Snake =
     { position : Vec2
     , velocity : Vec2
     , radius : Float
+    , tail : Int
     }
 
 
@@ -97,6 +98,7 @@ initSnake =
     { position = initPosition
     , velocity = vec2 speed 0
     , radius = 20
+    , tail = 1
     }
 
 
@@ -158,7 +160,7 @@ checkCollisions model =
             List.foldl
                 (\food ( snake, uneaten ) ->
                     if circlesCollide snake food then
-                        ( snake, uneaten )
+                        ( { snake | tail = snake.tail + 1 }, uneaten )
                     else
                         ( snake, food :: uneaten )
                 )
@@ -197,8 +199,8 @@ foodGenerator viewport id =
                 Just (initFood id ( x, y ))
         )
         (Rand.int 0 100)
-        (Rand.float 10 (viewport.scene.width - 10))
-        (Rand.float 10 (viewport.scene.height - 10))
+        (Rand.float 20 (viewport.scene.width - 20))
+        (Rand.float 20 (viewport.scene.height - 20))
 
 
 {-| speed is pixels per frame
@@ -323,7 +325,7 @@ viewSnake snake =
         , style "top" (px (getY snake.position))
         , style "transform" ("rotate(" ++ getDirectionRad snake ++ ")")
         ]
-        [ text "snake"
+        [ text ("sn" ++ String.repeat snake.tail "a" ++ "ke")
         ]
 
 
