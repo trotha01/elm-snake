@@ -143,6 +143,7 @@ update msg model =
                 |> updateSnake delta
                 |> addFood model.viewport delta
                 |> checkCollisions
+                |> removeOldFood
             , Cmd.none
             )
 
@@ -151,6 +152,20 @@ update msg model =
 
         TogglePause ->
             ( { model | pause = not model.pause }, Cmd.none )
+
+
+removeOldFood : Model -> Model
+removeOldFood model =
+    { model | food = List.filter (not << isFoodOld model.timeElapsed) model.food }
+
+
+foodDurationMS =
+    10000
+
+
+isFoodOld : Float -> Food -> Bool
+isFoodOld timeElapsed food =
+    food.id + foodDurationMS < timeElapsed
 
 
 checkCollisions : Model -> Model
