@@ -32,6 +32,7 @@ type alias Model =
     , pause : Bool
     , snake : Snake
     , food : List Food
+    , poison : List Poison
     }
 
 
@@ -44,6 +45,13 @@ type alias Snake =
 
 
 type alias Food =
+    { id : Float -- we are using timestamp as id for now
+    , position : Vec2
+    , radius : Float
+    }
+
+
+type alias Poison =
     { id : Float -- we are using timestamp as id for now
     , position : Vec2
     , radius : Float
@@ -70,6 +78,7 @@ init flags =
       , pause = True
       , snake = initSnake
       , food = []
+      , poison = []
       }
     , Task.perform UpdateViewport getViewport
     )
@@ -142,6 +151,7 @@ update msg model =
                 |> updateTimeElapsed delta
                 |> updateSnake delta
                 |> addFood model.viewport delta
+                |> addPoison model.viewport delta
                 |> checkCollisions
                 |> removeOldFood
             , Cmd.none
@@ -181,8 +191,19 @@ checkCollisions model =
                 )
                 ( model.snake, [] )
                 model.food
+
+        ( newSnake2, newPoisonList ) =
+            List.foldl
+                (\poison ( snake, uneaten ) ->
+                    if circlesCollide snake poison then
+                        ( { snake | tail = snake.tail - 1 }, uneaten )
+                    else
+                        ( snake, poison :: uneaten )
+                )
+                ( newSnake, [] )
+                model.poison
     in
-    { model | snake = newSnake, food = newFoodList }
+    { model | snake = newSnake2, food = newFoodList, poison = newPoisonList }
 
 
 updateTimeElapsed : Float -> Model -> Model
@@ -204,8 +225,36 @@ addFood viewport delta model =
     { model | food = newFoodList, seed = seed }
 
 
+addPoison : Viewport -> Float -> Model -> Model
+addPoison viewport delta model =
+    let
+        ( newPoisonList, seed ) =
+            case Rand.step (poisonGenerator viewport model.timeElapsed) model.seed of
+                ( Nothing, newSeed ) ->
+                    ( model.poison, newSeed )
+
+                ( Just newPoison, newSeed ) ->
+                    ( newPoison :: model.poison, newSeed )
+    in
+    { model | poison = newPoisonList, seed = seed }
+
+
 foodGenerator : Viewport -> Float -> Generator (Maybe Food)
 foodGenerator viewport id =
+    Rand.map3
+        (\i x y ->
+            if i > 1 then
+                Nothing
+            else
+                Just (initFood id ( x, y ))
+        )
+        (Rand.int 0 100)
+        (Rand.float 20 (viewport.scene.width - 20))
+        (Rand.float 20 (viewport.scene.height - 20))
+
+
+poisonGenerator : Viewport -> Float -> Generator (Maybe Poison)
+poisonGenerator viewport id =
     Rand.map3
         (\i x y ->
             if i > 1 then
@@ -314,6 +363,7 @@ viewGame model =
     div []
         [ viewSnake model.snake
         , viewFoods model.food
+        , viewPoisons model.poison
         ]
 
 
@@ -330,6 +380,21 @@ viewFood food =
         , style "top" (px (getY food.position))
         ]
         [ text "food" ]
+
+
+viewPoisons : List Poison -> Html Msg
+viewPoisons poisons =
+    div [] (List.map viewPoison poisons)
+
+
+viewPoison : Poison -> Html Msg
+viewPoison poison =
+    div
+        [ style "position" "absolute"
+        , style "left" (px (getX poison.position))
+        , style "top" (px (getY poison.position))
+        ]
+        [ text "poison" ]
 
 
 viewSnake : Snake -> Html Msg
